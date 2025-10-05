@@ -169,7 +169,7 @@
              else if (type === 'claim') {
                 const now = Tone.now();
                 synth.triggerAttackRelease("C5", "8n", now);
-                synth.triggerAttackRelease("G5", "8n", now + 0.1);
+                synth.triggerAttackRelease("G5", "8n", now + 0.15); // Use a slightly larger, more stable delay
              } else if (type === 'lift') {
                 const noise = new Tone.Noise("brown").start();
                 const filter = new Tone.AutoFilter("4n").toDestination().start();
@@ -387,7 +387,8 @@
             const liftScreenX = lift.x * effectiveTileSize;
 
             ctx.fillStyle = 'rgba(0,0,0,0.3)';
-            ctx.fillRect(liftScreenX, 0, liftWidth, tilesY * effectiveTileSize);
+            // Draw the lift shaft far down the screen to simulate endlessness
+            ctx.fillRect(liftScreenX, 0, liftWidth, canvas.height + camera.y + 2000);
 
             ctx.fillStyle = '#8c5a2b';
             ctx.fillRect(liftScreenX, lift.y, liftWidth, liftHeight);
