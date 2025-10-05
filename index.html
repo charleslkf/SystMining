@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SYST Mining Game</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <div id="ui-top">
+            <div id="wallet-info">
+                <span id="wallet-status">Disconnected</span>
+                <span id="wallet-address"></span>
+                <span id="node-tier"></span>
+            </div>
+            <div id="game-stats">
+                <span>Mined SYST: <span id="mined-syst">0</span></span>
+                <span>Energy: <span id="energy-bar">100/100</span></span>
+            </div>
+        </div>
+        <canvas id="game-canvas"></canvas>
+        <div id="ui-bottom">
+            <button id="claim-rewards-btn">Claim Rewards</button>
+        </div>
+        <div id="welcome-modal" class="modal">
+            <div class="modal-content">
+                <h2>Welcome to SYST Mining Game</h2>
+                <p>Connect your wallet to start mining.</p>
+                <button id="connect-wallet-btn">Connect Wallet</button>
+            </div>
+        </div>
+        <div id="notification" class="hidden"></div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
