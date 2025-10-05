@@ -129,12 +129,14 @@
     </div>
 
     <script type="module">
-        // --- DOM Elements ---
+        // --- GAME & UI SETUP ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
+
         const connectWalletBtn = document.getElementById('connect-wallet-btn');
         const modalConnectBtn = document.getElementById('modal-connect-btn');
         const welcomeModal = document.getElementById('welcome-modal');
+        const walletInfo = document.getElementById('wallet-info');
         const walletDetails = document.getElementById('wallet-details');
         const walletAddressSpan = document.getElementById('wallet-address');
         const nodeTierSpan = document.getElementById('node-tier');
@@ -144,222 +146,183 @@
         const claimRewardsBtn = document.getElementById('claim-rewards-btn');
         const notification = document.getElementById('notification');
 
-        // --- Game Configuration ---
-        const TILE_SIZE_X = 20; // Number of tiles across the width
-        const MINE_START_ROW = 4; // Row where the mine ground begins
-        const CLICK_COST = 1;
-        const CLICKS_PER_DIG = 10;
-        const MAX_ENERGY = 100;
-        const REWARD_CHANCE = 0.5; // 50% chance to find SYST after a dig
-        const LIFT_COLUMN = 2; // Column where the lift is
+        // --- WEB3 SETUP ---
+        let provider, signer, userAddress;
+        let userNodeTier = 0;
+        let minedSyst = 0;
+        let miningEnergy = 100;
 
-        const tierConfig = {
-            0: { name: "No Node", reward: 0 },
-            1: { name: "Tier 1", reward: 0.1 },
-            2: { name: "Tier 2", reward: 0.5 },
-            3: { name: "Tier 3", reward: 2 },
-            4: { name: "Tier 4", reward: 5 },
-            5: { name: "Tier 5", reward: 10 },
-        };
+        // --- MOCK CONTRACT ADDRESSES ---
+        const NFT_CONTRACT_ADDRESS = "0x...YourNFTContractAddress";
+        const MINING_CONTRACT_ADDRESS = "0x...YourMiningContractAddress";
+        const NFT_CONTRACT_ABI = ["function balanceOf(address owner) view returns (uint256)", "function getNodeTier(address owner) view returns (uint256)"];
+        const MINING_CONTRACT_ABI = ["function claimTokens()"];
 
-        // --- Game State ---
-        let gameState = {
-            connected: false,
-            walletAddress: null,
-            nodeTier: 0,
-            miningEnergy: MAX_ENERGY,
-            minedSyst: 0,
-            minerPos: { x: 0, y: MINE_START_ROW, dir: 1, animation: 0 },
-            minedTiles: {}, // Using an object for efficient lookups { 'x,y': true }
-            clickCount: 0,
-            isClaiming: false,
-        };
-
-        // --- Render State ---
-        let camera = { y: 0 };
-        let effectiveTileSize = 0;
-        let rewardEffects = [];
-        let rockPatterns = {};
-
-        // --- Sound Engine ---
-        const sounds = {
-            mine: new Tone.MetalSynth({ frequency: 50, envelope: { attack: 0.001, decay: 0.1, release: 0.01 }, harmonicity: 3.1, modulationIndex: 16, resonance: 4000, octaves: 1.5 }).toDestination(),
-            reward: new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 0.2 } }).toDestination(),
-            lift: new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.1, decay: 0.5, sustain: 0.1, release: 0.5 } }).toDestination(),
-            click: new Tone.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.1 } }).toDestination(),
-        };
+        // --- SOUND SETUP ---
+        const synth = new Tone.Synth().toDestination();
+        const metalSynth = new Tone.MetalSynth({ frequency: 50, envelope: { attack: 0.001, decay: 0.1, release: 0.01 }, harmonicity: 3.1, modulationIndex: 16, resonance: 4000, octaves: 1.5 }).toDestination();
 
         function playSound(type) {
-            if (Tone.context.state !== 'running') Tone.start();
-            if (sounds[type]) {
-                if(type === 'lift') sounds.lift.triggerAttack();
-                else sounds[type].triggerAttackRelease(type === 'mine' ? 'C2' : 'G4', '8n');
-            }
+             if (Tone.context.state !== 'running') Tone.start();
+             if (type === 'mine') metalSynth.triggerAttackRelease("C2", "8n");
+             else if (type === 'reward') synth.triggerAttackRelease("G4", "8n");
+             else if (type === 'claim') {
+                synth.triggerAttackRelease("C5", "8n", Tone.now());
+                synth.triggerAttackRelease("G5", "8n", Tone.now() + 0.1);
+             } else if (type === 'lift') {
+                const noise = new Tone.Noise("brown").start();
+                const filter = new Tone.AutoFilter("4n").toDestination().start();
+                noise.connect(filter);
+                setTimeout(() => noise.stop(), 500);
+             }
         }
 
-        // --- Web3 & State Management ---
+        // --- WEB3 LOGIC ---
         async function connectWallet() {
             if (typeof window.ethereum === 'undefined') return showNotification("EVM wallet not found. Please use a DApp browser.", 'error');
             try {
-                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-                const address = accounts[0];
-                gameState.walletAddress = address;
-                gameState.connected = true;
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                await provider.send("eth_requestAccounts", []);
+                signer = provider.getSigner();
+                userAddress = await signer.getAddress();
 
-                // Simulate getNodeTier() call - sticky tier based on address
-                const addressSlice = parseInt(address.slice(-4), 16);
-                gameState.nodeTier = (addressSlice % 5) + 1; // Tier 1-5
+                welcomeModal.classList.add('hidden');
+                connectWalletBtn.classList.add('hidden');
+                walletDetails.classList.remove('hidden');
+                walletAddressSpan.innerText = `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
 
-                showNotification(`Mining Node Tier ${gameState.nodeTier} detected!`, 'success');
-
-                loadProgress(); // Load progress for this wallet
-                updateUI();
-
+                await checkUserNodeStatus();
             } catch (err) {
                 console.error("Error connecting wallet:", err);
                 showNotification("Wallet connection rejected.", 'error');
             }
         }
 
-        function saveProgress() {
-            if (!gameState.walletAddress) return;
-            const stateToSave = {
-                minerPos: gameState.minerPos,
-                minedTiles: gameState.minedTiles,
-                minedSyst: gameState.minedSyst,
-            };
-            localStorage.setItem(`syst_miner_save_${gameState.walletAddress}`, JSON.stringify(stateToSave));
-        }
+        async function checkUserNodeStatus() {
+            showNotification("Checking for Mining Node...", 'info');
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            userNodeTier = Math.floor(Math.random() * 3) + 1;
 
-        function loadProgress() {
-            if (!gameState.walletAddress) return;
-            const savedStateJSON = localStorage.getItem(`syst_miner_save_${gameState.walletAddress}`);
-            if (savedStateJSON) {
-                try {
-                    const savedState = JSON.parse(savedStateJSON);
-                    gameState.minerPos = savedState.minerPos || { x: 0, y: MINE_START_ROW, dir: 1, animation: 0 };
-                    gameState.minedTiles = savedState.minedTiles || {};
-                    gameState.minedSyst = savedState.minedSyst || 0;
-                    showNotification("Previous progress loaded!", 'info');
-                } catch (e) {
-                    console.error("Could not parse saved state:", e);
-                }
+            if (userNodeTier > 0) {
+                nodeTierSpan.innerText = `Tier ${userNodeTier}`;
+                gameStats.classList.remove('hidden');
+                claimRewardsBtn.classList.remove('hidden');
+                showNotification(`Mining Node Tier ${userNodeTier} detected! Starting game.`, 'success');
+                loadGameState();
+                startGame();
+            } else {
+                nodeTierSpan.innerText = "No Node Detected";
+                showNotification("No Mining Node found in your wallet. You cannot play.", 'error');
             }
         }
 
-        // --- Core Game Logic ---
-        function mine() {
-            if (gameState.isClaiming || gameState.miningEnergy <= 0) {
-                if (gameState.miningEnergy <= 0) showNotification("Energy depleted! Claim rewards to recharge.", "info");
-                return;
-            }
+        // --- GAME LOGIC & STATE ---
+        let gameActive = false;
+        let isReturningToShack = false;
+        let isDiggingSequence = false;
+        let returnState = 'idle';
+        let tilesX, tilesY, effectiveTileSize;
+        const MINE_START_ROW = 4;
+        let minefield = [];
+        let miner = { x: 0, y: MINE_START_ROW, dir: 1, animation: 0 };
+        let lift = { x: 2, y: 0, destY: 0 };
+        let rewardEffects = [];
+        const REWARD_CHANCE = 1.0;
+        let camera = { y: 0 };
+        let clickCounter = 0;
 
-            gameState.miningEnergy -= CLICK_COST;
-            gameState.clickCount++;
-            gameState.minerPos.animation = 5; // For pickaxe swing
+        const tierConfig = {
+            1: { reward: 0.05 },
+            2: { reward: 0.12 },
+            3: { reward: 0.25 }
+        };
+
+        function setupGrid() {
+            if (canvas.width === 0 || canvas.height === 0) return;
+            tilesX = 20;
+            effectiveTileSize = canvas.width / tilesX;
+            tilesY = Math.floor(canvas.height / effectiveTileSize) + 200;
+
+            if (isNaN(tilesX) || isNaN(tilesY) || tilesX <= 0 || tilesY <= 0) return;
+
+            if (minefield.length === 0) {
+                 minefield = new Array(tilesX * tilesY).fill(0);
+                 for(let y = 0; y < MINE_START_ROW; y++) {
+                    for(let x = 0; x < tilesX; x++) minefield[y * tilesX + x] = 1;
+                 }
+            }
+        }
+
+        function saveGameState() {
+            if (!userAddress) return;
+            const gameState = { minerX: miner.x, minerY: miner.y, mineDirection: miner.dir, minedSyst: minedSyst, minefield: minefield };
+            localStorage.setItem(`syst_miner_progress_${userAddress}`, JSON.stringify(gameState));
+        }
+
+        function loadGameState() {
+            if (!userAddress) return;
+            const savedState = localStorage.getItem(`syst_miner_progress_${userAddress}`);
+            if (savedState) {
+                const gameState = JSON.parse(savedState);
+                miner.x = gameState.minerX || 0;
+                miner.y = gameState.minerY >= MINE_START_ROW ? gameState.minerY : MINE_START_ROW;
+                miner.dir = gameState.mineDirection || 1;
+                minedSyst = gameState.minedSyst || 0;
+                if(gameState.minefield) minefield = gameState.minefield;
+                updateUI();
+            }
+        }
+
+        async function handleMineClick() {
+            if (!gameActive || isReturningToShack || isDiggingSequence || miningEnergy <= 0) return;
+
+            miningEnergy--;
+            clickCounter++;
+            miner.animation = 5;
             playSound('mine');
+            updateUI();
 
-            if (gameState.clickCount >= CLICKS_PER_DIG) {
-                gameState.clickCount = 0;
+            if (clickCounter >= 10) {
+                isDiggingSequence = true;
+                clickCounter = 0;
 
-                // Break the two rock tiles in front of the miner
-                const digX = gameState.minerPos.x + (gameState.minerPos.dir === 1 ? 2 : -1);
+                await new Promise(resolve => setTimeout(resolve, 250));
+
+                const digX = miner.x + (miner.dir === 1 ? 2 : -1);
                 [0, 1].forEach(offsetY => {
-                    const tileY = gameState.minerPos.y + offsetY;
-                    const tileKey = `${digX},${tileY}`;
-                    if (digX >= 0 && digX < TILE_SIZE_X) {
-                        gameState.minedTiles[tileKey] = true;
-                        // Check for rewards
-                        if (Math.random() < REWARD_CHANCE) {
-                            const rewardAmount = tierConfig[gameState.nodeTier]?.reward || 0;
-                            if (rewardAmount > 0) {
-                                gameState.minedSyst += rewardAmount;
-                                rewardEffects.push({ x: (digX + 0.5) * effectiveTileSize, y: (tileY + 0.5) * effectiveTileSize, amount: rewardAmount.toFixed(4), life: 60 });
+                    const tile = { x: digX, y: miner.y + offsetY };
+                    if (tile.x >= 0 && tile.x < tilesX && tile.y >= 0 && tile.y < tilesY) {
+                        const tileIndex = tile.y * tilesX + tile.x;
+                        if (tileIndex < minefield.length && minefield[tileIndex] === 0) {
+                            minefield[tileIndex] = 1;
+                            if (Math.random() < REWARD_CHANCE) {
+                                const reward = tierConfig[userNodeTier]?.reward || 0.01;
+                                minedSyst += reward;
+                                rewardEffects.push({ x: (tile.x + 0.5) * effectiveTileSize, y: (tile.y + 0.5) * effectiveTileSize, amount: reward.toFixed(4), life: 60 });
                                 playSound('reward');
                             }
                         }
                     }
                 });
 
-                // Advance miner
-                gameState.minerPos.x += gameState.minerPos.dir;
+                miner.x += miner.dir;
 
-                // Snake-like movement
-                if (gameState.minerPos.dir === 1 && (gameState.minerPos.x + 2 >= TILE_SIZE_X)) {
-                    gameState.minerPos.y += 2;
-                    gameState.minerPos.dir = -1;
-                } else if (gameState.minerPos.dir === -1 && gameState.minerPos.x <= 0) {
-                    gameState.minerPos.y += 2;
-                    gameState.minerPos.dir = 1;
-                }
+                if (miner.dir === 1 && (miner.x + 2 >= tilesX)) { miner.y += 2; miner.dir = -1; }
+                else if (miner.dir === -1 && (miner.x <= 0)) { miner.y += 2; miner.dir = 1; }
+
+                updateUI();
+                saveGameState();
+                isDiggingSequence = false;
             }
-            updateUI();
-            saveProgress();
+
+            if (miningEnergy <= 0) {
+                showNotification("Energy depleted! Return to shack to claim and recharge.", "info");
+            }
         }
 
-        async function claimRewards() {
-            if (gameState.isClaiming) return;
-            if (gameState.minedSyst <= 0 && gameState.miningEnergy > 0) return showNotification("No SYST to claim.", 'info');
-
-            gameState.isClaiming = true;
-            claimRewardsBtn.disabled = true;
-            playSound('lift');
-
-            const originalPos = { ...gameState.minerPos };
-            const liftScreenX = (LIFT_COLUMN + 1) * effectiveTileSize;
-
-            // 1. Animate to lift
-            await animateTo(val => gameState.minerPos.x = val, gameState.minerPos.x, LIFT_COLUMN, 1500);
-
-            // 2. Ascend
-            await animateTo(val => gameState.minerPos.y = val, gameState.minerPos.y, -5, 2000);
-
-            // 3. Claim on surface
-            showNotification("Rewards Claimed! Energy Recharged!", 'success');
-            gameState.minedSyst = 0;
-            gameState.miningEnergy = MAX_ENERGY;
-            updateUI();
-            await new Promise(res => setTimeout(res, 1000));
-            sounds.lift.triggerRelease(); // Stop sound
-
-            // 4. Descend
-            playSound('lift');
-            await animateTo(val => gameState.minerPos.y = val, -5, originalPos.y, 2000);
-
-            // 5. Return to position
-            await animateTo(val => gameState.minerPos.x = val, LIFT_COLUMN, originalPos.x, 1500);
-
-            gameState.minerPos = originalPos; // Snap to final position
-            sounds.lift.triggerRelease();
-            gameState.isClaiming = false;
-            claimRewardsBtn.disabled = false;
-            saveProgress();
-        }
-
-        // --- Drawing & Rendering ---
-
-        function gameLoop() {
-            // Update camera to follow miner smoothly
-            const targetY = (gameState.minerPos.y + 1) * effectiveTileSize - canvas.height / 2;
-            camera.y += (targetY - camera.y) * 0.05;
-            if (camera.y < 0) camera.y = 0;
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.save();
-            ctx.translate(0, -camera.y);
-
-            drawGridAndRocks();
-            drawScenery();
-            drawLift();
-            drawMiner();
-            drawEffects();
-
-            ctx.restore();
-
-            requestAnimationFrame(gameLoop);
-        }
 
         const rockColors = ['#4a3f35', '#574a3e', '#3b322a'];
+        let rockPatterns = {};
         function getRockPattern(x, y) {
             const key = `${x},${y}`;
             if (!rockPatterns[key]) {
@@ -372,35 +335,35 @@
             if (!effectiveTileSize) return;
             const landY = MINE_START_ROW * effectiveTileSize;
 
-            ctx.fillStyle = '#60a5fa'; // Sky
+            ctx.fillStyle = '#60a5fa';
             ctx.fillRect(0, 0, canvas.width, landY);
-            ctx.fillStyle = '#6b4c2d'; // Ground
+            ctx.fillStyle = '#6b4c2d';
             ctx.fillRect(0, landY, canvas.width, effectiveTileSize);
 
-            // Shack
             const shackWidth = effectiveTileSize * 4, shackHeight = effectiveTileSize * 3;
             const shackX = (canvas.width / 2) - (shackWidth / 2), shackY = landY - shackHeight;
             ctx.fillStyle = '#6b4c2d'; ctx.fillRect(shackX, shackY, shackWidth, shackHeight);
             ctx.fillStyle = '#8c5a2b'; ctx.beginPath(); ctx.moveTo(shackX - effectiveTileSize * 0.2, shackY); ctx.lineTo(shackX + shackWidth + effectiveTileSize * 0.2, shackY); ctx.lineTo(shackX + shackWidth, shackY - shackHeight * 0.5); ctx.lineTo(shackX, shackY - shackHeight * 0.5); ctx.closePath(); ctx.fill();
             ctx.fillStyle = '#4a3f35'; ctx.fillRect(shackX + shackWidth * 0.35, shackY + shackHeight * 0.2, shackWidth * 0.3, shackHeight * 0.8);
 
-            // Mine entrance
-            const caveX = (LIFT_COLUMN + 1) * effectiveTileSize;
-            ctx.fillStyle = 'black';
-            ctx.fillRect(caveX - effectiveTileSize, landY, effectiveTileSize * 2, effectiveTileSize * 2);
+            const caveX = effectiveTileSize * 4;
+            const caveRadius = effectiveTileSize * 2;
+            ctx.fillStyle = '#57534e'; // Rock color
+            ctx.beginPath(); ctx.arc(caveX, landY, caveRadius, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(caveX, landY, caveRadius * 0.7, 0, Math.PI * 2); ctx.fill();
         }
 
         function drawGridAndRocks() {
-            if (!effectiveTileSize) return;
+            if (!tilesX || !tilesY) return;
             const startY = Math.floor(camera.y / effectiveTileSize);
-            const endY = Math.min(startY + Math.ceil(canvas.height / effectiveTileSize) + 2, 1000);
+            const endY = Math.min(startY + Math.ceil(canvas.height / effectiveTileSize) + 2, tilesY);
 
-            ctx.fillStyle = '#2d2620'; // Base rock color
-            ctx.fillRect(0, MINE_START_ROW * effectiveTileSize, canvas.width, (endY - MINE_START_ROW) * effectiveTileSize);
+            ctx.fillStyle = '#2d2620';
+            ctx.fillRect(0, MINE_START_ROW * effectiveTileSize, canvas.width, (tilesY - MINE_START_ROW) * effectiveTileSize);
 
             for (let y = Math.max(MINE_START_ROW, startY); y < endY; y++) {
-                for (let x = 0; x < TILE_SIZE_X; x++) {
-                     if (!gameState.minedTiles[`${x},${y}`]) {
+                for (let x = 0; x < tilesX; x++) {
+                     if (minefield[y * tilesX + x] === 0) {
                         ctx.fillStyle = rockColors[0];
                         ctx.fillRect(x * effectiveTileSize, y * effectiveTileSize, effectiveTileSize, effectiveTileSize);
                         const pattern = getRockPattern(x, y);
@@ -419,53 +382,55 @@
             if (!effectiveTileSize) return;
             const liftWidth = effectiveTileSize * 2;
             const liftHeight = effectiveTileSize * 2;
-            const liftScreenX = LIFT_COLUMN * effectiveTileSize;
-            const liftY = gameState.isClaiming ? gameState.minerPos.y * effectiveTileSize : (gameState.minerPos.y + 1) * effectiveTileSize;
+            const liftScreenX = lift.x * effectiveTileSize;
 
             ctx.fillStyle = 'rgba(0,0,0,0.3)';
-            ctx.fillRect(liftScreenX, 0, liftWidth, 1000 * effectiveTileSize);
+            ctx.fillRect(liftScreenX, 0, liftWidth, tilesY * effectiveTileSize);
 
             ctx.fillStyle = '#8c5a2b';
-            ctx.fillRect(liftScreenX, liftY, liftWidth, liftHeight);
+            ctx.fillRect(liftScreenX, lift.y, liftWidth, liftHeight);
+            ctx.fillStyle = '#6b4c2d';
+            ctx.fillRect(liftScreenX, lift.y + liftHeight - 5, liftWidth, 5);
         }
 
         function drawMiner() {
             if (!effectiveTileSize) return;
             const baseSize = effectiveTileSize * 2;
-            const cX = (gameState.minerPos.x + 1) * effectiveTileSize;
-            const cY = (gameState.minerPos.y + 1) * effectiveTileSize;
+            const cX = (miner.x + 1) * effectiveTileSize;
+            const cY = (miner.y + 1) * effectiveTileSize;
             const p = (size) => size / 16 * baseSize;
 
-            ctx.fillStyle = '#1e3a8a'; ctx.fillRect(cX - p(4), cY, p(4), p(6)); // Left leg
-            ctx.fillRect(cX, cY, p(4), p(6)); // Right leg
-            ctx.fillStyle = '#1d4ed8'; ctx.fillRect(cX - p(5), cY - p(6), p(10), p(8)); // Body
-            ctx.fillStyle = '#d2a679'; ctx.fillRect(cX - p(4), cY - p(11), p(8), p(5)); // Head
-            ctx.fillStyle = '#4a2e0a'; ctx.fillRect(cX - p(5), cY - p(12), p(10), p(4)); // Hair
-            ctx.fillStyle = '#f59e0b'; ctx.fillRect(cX - p(6), cY - p(14), p(12), p(3)); // Helmet light
-            ctx.fillStyle = '#60a5fa'; ctx.fillRect(cX - p(2), cY - p(15), p(4), p(2)); // Helmet bulb
+            ctx.fillStyle = '#1e3a8a'; ctx.fillRect(cX - p(4), cY, p(4), p(6));
+            ctx.fillRect(cX, cY, p(4), p(6));
+            ctx.fillStyle = '#1d4ed8'; ctx.fillRect(cX - p(5), cY - p(6), p(10), p(8));
+            ctx.fillStyle = '#d2a679'; ctx.fillRect(cX - p(4), cY - p(11), p(8), p(5));
+            ctx.fillStyle = '#4a2e0a'; ctx.fillRect(cX - p(5), cY - p(12), p(10), p(4));
+            ctx.fillRect(cX - p(4), cY - p(7), p(8), p(3)); ctx.fillRect(cX - p(2), cY - p(4), p(4), p(2));
+            ctx.fillStyle = '#f59e0b'; ctx.fillRect(cX - p(6), cY - p(14), p(12), p(3));
+            ctx.fillStyle = '#60a5fa'; ctx.fillRect(cX - p(2), cY - p(15), p(4), p(2));
 
             ctx.save();
             ctx.translate(cX, cY - p(2));
-            if (gameState.minerPos.animation > 0) {
-                const swing = Math.sin((10 - gameState.minerPos.animation) * 0.5) * 1.2;
-                ctx.rotate(swing * gameState.minerPos.dir);
-                gameState.minerPos.animation--;
+            if (miner.animation > 0) {
+                const swing = Math.sin((10 - miner.animation) * 0.5) * 1.2;
+                ctx.rotate(swing * miner.dir);
+                miner.animation--;
             }
-            ctx.fillStyle = '#1d4ed8'; ctx.fillRect(p(2) * gameState.minerPos.dir, -p(1), p(5), p(2));
-            ctx.fillStyle = '#6b7280'; ctx.fillRect(p(6) * gameState.minerPos.dir, -p(1.5), p(7), p(1));
-            ctx.fillStyle = '#d1d5db'; ctx.fillRect(p(12) * gameState.minerPos.dir, -p(3), p(1), p(4));
+            ctx.fillStyle = '#1d4ed8'; ctx.fillRect(p(2) * miner.dir, -p(1), p(5), p(2));
+            ctx.fillStyle = '#6b7280'; ctx.fillRect(p(6) * miner.dir, -p(1.5), p(7), p(1));
+            ctx.fillStyle = '#d1d5db'; ctx.fillRect(p(12) * miner.dir, -p(3), p(1), p(4));
             ctx.restore();
         }
 
         function drawEffects() {
             if (!effectiveTileSize) return;
             ctx.fillStyle = '#f59e0b';
-            ctx.font = `${effectiveTileSize * 0.8}px VT323`;
+            ctx.font = `${effectiveTileSize * 0.6}px VT323`;
             ctx.textAlign = 'center';
             for (let i = rewardEffects.length - 1; i >= 0; i--) {
                 const effect = rewardEffects[i];
                 ctx.globalAlpha = effect.life / 60;
-                ctx.fillText(`+${effect.amount}`, effect.x, effect.y);
+                ctx.fillText(`+${effect.amount} SYST`, effect.x, effect.y);
                 effect.y -= 0.5;
                 effect.life--;
                 if (effect.life <= 0) rewardEffects.splice(i, 1);
@@ -473,20 +438,9 @@
             ctx.globalAlpha = 1;
         }
 
-        // --- UI & Utility Functions ---
         function updateUI() {
-            systBalanceSpan.innerText = gameState.minedSyst.toFixed(4);
-            energyBar.style.width = `${gameState.miningEnergy}%`;
-
-            if (gameState.connected) {
-                welcomeModal.classList.add('hidden');
-                connectWalletBtn.classList.add('hidden');
-                walletDetails.classList.remove('hidden');
-                gameStats.classList.remove('hidden');
-                claimRewardsBtn.classList.remove('hidden');
-                walletAddressSpan.innerText = `${gameState.walletAddress.substring(0, 6)}...${gameState.walletAddress.substring(gameState.walletAddress.length - 4)}`;
-                nodeTierSpan.innerText = tierConfig[gameState.nodeTier].name;
-            }
+            systBalanceSpan.innerText = minedSyst.toFixed(4);
+            energyBar.style.width = `${miningEnergy}%`;
         }
 
         function showNotification(message, type = 'info') {
@@ -494,49 +448,109 @@
              notification.classList.remove('hidden', 'bg-green-500', 'bg-red-500', 'bg-blue-500');
              const typeClass = type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-green-500' : 'bg-blue-500';
              notification.classList.add(typeClass);
-             setTimeout(() => notification.classList.add('hidden'), 3000);
+             setTimeout(() => notification.classList.add('hidden'), 4000);
         }
 
-        function lerp(start, end, t) { return start * (1 - t) + end * t; }
+        async function handleClaimSequence() {
+            const liftTargetX = lift.x * effectiveTileSize + effectiveTileSize;
+            const minerScreenX = (miner.x + 1) * effectiveTileSize;
+            const shackX = canvas.width / 2;
 
-        async function animateTo(setter, start, end, duration) {
-            let startTime = null;
-            return new Promise(resolve => {
-                function animationStep(timestamp) {
-                    if (!startTime) startTime = timestamp;
-                    const progress = Math.min((timestamp - startTime) / duration, 1);
-                    setter(lerp(start, end, progress));
-                    if (progress < 1) requestAnimationFrame(animationStep);
-                    else resolve();
-                }
-                requestAnimationFrame(animationStep);
-            });
+            switch(returnState) {
+                case 'goToLift':
+                    if (Math.abs(minerScreenX - liftTargetX) > 5) miner.x -= Math.sign(minerScreenX - liftTargetX) * 0.1;
+                    else { returnState = 'ascending'; lift.destY = (MINE_START_ROW - 1) * effectiveTileSize; playSound('lift'); }
+                    break;
+                case 'ascending':
+                    if (Math.abs(lift.y - lift.destY) > 1) lift.y -= (lift.y - lift.destY) * 0.05;
+                    else { lift.y = lift.destY; returnState = 'goToShack'; }
+                    miner.y = (lift.y / effectiveTileSize) - 1;
+                    break;
+                case 'goToShack':
+                     if (Math.abs(minerScreenX - shackX) > 5) miner.x += Math.sign(shackX - minerScreenX) * 0.1;
+                     else {
+                        returnState = 'claiming';
+                        showNotification("Claiming rewards...", 'info');
+                        await new Promise(resolve => setTimeout(resolve, 1500));
+                        minedSyst = 0; miningEnergy = 100; updateUI(); saveGameState();
+                        showNotification("Rewards Claimed & Energy Recharged!", 'success');
+                        returnState = 'backToLift';
+                    }
+                    break;
+                 case 'backToLift':
+                    if (Math.abs(minerScreenX - liftTargetX) > 5) miner.x -= Math.sign(minerScreenX - liftTargetX) * 0.1;
+                    else { returnState = 'descending'; lift.destY = (gameStateBeforeReturn.y + 1) * effectiveTileSize; playSound('lift'); }
+                    break;
+                case 'descending':
+                     if (Math.abs(lift.y - lift.destY) > 1) lift.y += (lift.destY - lift.y) * 0.05;
+                     else {
+                        lift.y = lift.destY; returnState = 'idle'; isReturningToShack = false;
+                        miner.x = gameStateBeforeReturn.x; miner.y = gameStateBeforeReturn.y; miner.dir = gameStateBeforeReturn.dir;
+                        claimRewardsBtn.disabled = false; claimRewardsBtn.classList.remove('hidden');
+                    }
+                    miner.y = (lift.y / effectiveTileSize) - 1;
+                    break;
+            }
         }
 
-        function setupCanvas() {
+        let gameStateBeforeReturn = {};
+        function startClaimSequence() {
+            if (minedSyst <= 0 && miningEnergy > 0) return showNotification("No SYST to claim.", 'info');
+            if (isReturningToShack) return;
+
+            isReturningToShack = true;
+            returnState = 'goToLift';
+            gameStateBeforeReturn = { x: miner.x, y: miner.y, dir: miner.dir };
+            lift.y = (miner.y + 1) * effectiveTileSize;
+            claimRewardsBtn.disabled = true;
+        }
+
+        function gameLoop() {
+            if (isReturningToShack) {
+                handleClaimSequence();
+            }
+
+            const targetY = (miner.y + 1) * effectiveTileSize - canvas.height / 2;
+            camera.y += (targetY - camera.y) * 0.05;
+            if (camera.y < 0) camera.y = 0;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(0, -camera.y);
+
+            drawGridAndRocks();
+            drawScenery();
+            drawLift();
+            drawMiner();
+            drawEffects();
+
+            ctx.restore();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function startGame() {
+            if (gameActive) return;
+            gameActive = true;
+        }
+
+        function init() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            effectiveTileSize = canvas.width / TILE_SIZE_X;
-            camera.y = (gameState.minerPos.y + 1) * effectiveTileSize - canvas.height / 2;
-        }
+            setupGrid();
+            camera.y = (miner.y + 1) * effectiveTileSize - canvas.height / 2;
 
-        // --- Initialization ---
-        function init() {
-            setupCanvas();
 
-            const handleConnect = () => { playSound('click'); connectWallet(); };
-            connectWalletBtn.addEventListener('click', handleConnect);
-            modalConnectBtn.addEventListener('click', handleConnect);
-            claimRewardsBtn.addEventListener('click', () => { playSound('click'); claimRewards(); });
-            canvas.addEventListener('click', mine);
+            connectWalletBtn.addEventListener('click', connectWallet);
+            modalConnectBtn.addEventListener('click', connectWallet);
+            claimRewardsBtn.addEventListener('click', startClaimSequence);
+            canvas.addEventListener('click', handleMineClick);
 
-            window.addEventListener('resize', setupCanvas);
-            if (window.ethereum) {
-                window.ethereum.on('accountsChanged', () => {
-                    showNotification("Account changed. Reloading...", 'info');
-                    setTimeout(() => window.location.reload(), 2000);
-                });
-            }
+            window.addEventListener('resize', () => {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                setupGrid();
+            });
 
             gameLoop();
         }
