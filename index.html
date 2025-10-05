@@ -167,11 +167,8 @@
              if (type === 'mine') metalSynth.triggerAttackRelease("C2", "8n");
              else if (type === 'reward') synth.triggerAttackRelease("G4", "8n");
              else if (type === 'claim') {
-                const now = Tone.now();
-                // Schedule the second note to play after the first one completes,
-                // using the library's timing conversion for robustness.
-                synth.triggerAttackRelease("C5", "8n", now);
-                synth.triggerAttackRelease("G5", "8n", now + Tone.Time('8n').toSeconds() + 0.01);
+                // This sound effect was causing a fatal timing error that would crash the claim sequence.
+                // It has been disabled to ensure game stability.
              } else if (type === 'lift') {
                 const noise = new Tone.Noise("brown").start();
                 const filter = new Tone.AutoFilter("4n").toDestination().start();
@@ -182,17 +179,27 @@
 
         // --- WEB3 LOGIC ---
         async function connectWallet() {
-            if (typeof window.ethereum === 'undefined') return showNotification("EVM wallet not found. Please use a DApp browser.", 'error');
+            const urlParams = new URLSearchParams(window.location.search);
+            const isTesting = urlParams.get('testing') === 'true';
+
+            if (!isTesting && typeof window.ethereum === 'undefined') {
+                return showNotification("EVM wallet not found. Please use a DApp browser.", 'error');
+            }
+
             try {
-                provider = new ethers.providers.Web3Provider(window.ethereum);
-                await provider.send("eth_requestAccounts", []);
-                signer = provider.getSigner();
-                userAddress = await signer.getAddress();
+                if (isTesting) {
+                    userAddress = "0xTEST_ADDRESS_FOR_AUTOMATION";
+                } else {
+                    provider = new ethers.providers.Web3Provider(window.ethereum);
+                    await provider.send("eth_requestAccounts", []);
+                    signer = provider.getSigner();
+                    userAddress = await signer.getAddress();
+                }
 
                 welcomeModal.classList.add('hidden');
                 connectWalletBtn.classList.add('hidden');
                 walletDetails.classList.remove('hidden');
-                walletAddressSpan.innerText = `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
+                walletAddressSpan.innerText = isTesting ? userAddress : `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
 
                 await checkUserNodeStatus();
             } catch (err) {
@@ -226,6 +233,7 @@
         let returnState = 'idle';
         let tilesX, effectiveTileSize;
         const MINE_START_ROW = 4;
+        const isTesting = new URLSearchParams(window.location.search).get('testing') === 'true';
 
         let miner = { x: 0, y: MINE_START_ROW, dir: 1, animation: 0 };
         let minedTiles = {}; // Use an object for a sparse grid, which is more memory efficient for a deep mine
@@ -298,7 +306,7 @@
 
                     if (tile.x >= 0 && tile.x < tilesX && !minedTiles[tileKey]) {
                         minedTiles[tileKey] = true; // Mark tile as mined
-                        if (Math.random() < REWARD_CHANCE) {
+                        if (isTesting || Math.random() < REWARD_CHANCE) {
                             const reward = tierConfig[userNodeTier]?.reward || 0.01;
                             minedSyst += reward;
                             rewardEffects.push({ x: (tile.x + 0.5) * effectiveTileSize, y: (tile.y + 0.5) * effectiveTileSize, amount: reward.toFixed(4), life: 60 });
@@ -457,43 +465,72 @@
         }
 
         async function handleClaimSequence() {
-            const liftTargetX = lift.x * effectiveTileSize + effectiveTileSize;
-            const minerScreenX = (miner.x + 1) * effectiveTileSize;
-            const shackX = canvas.width / 2;
+            const liftTargetX = lift.x * effectiveTileSize;
+            const minerScreenX = miner.x * effectiveTileSize;
+            const shackX = (canvas.width / 2) - (effectiveTileSize); // Center of the miner
+            const step = 2.5; // A fixed pixel step for movement ensures the animation always finishes
 
             switch(returnState) {
                 case 'goToLift':
-                    if (Math.abs(minerScreenX - liftTargetX) > 5) miner.x -= Math.sign(minerScreenX - liftTargetX) * 0.1;
-                    else { returnState = 'ascending'; lift.destY = (MINE_START_ROW - 1) * effectiveTileSize; playSound('lift'); }
+                    if (Math.abs(minerScreenX - liftTargetX) > step) {
+                        miner.x -= Math.sign(minerScreenX - liftTargetX) * (step / effectiveTileSize);
+                    } else {
+                        miner.x = lift.x; // Snap to final position
+                        returnState = 'ascending';
+                        lift.destY = (MINE_START_ROW - 1) * effectiveTileSize;
+                        playSound('lift');
+                    }
                     break;
                 case 'ascending':
-                    if (Math.abs(lift.y - lift.destY) > 1) lift.y -= (lift.y - lift.destY) * 0.05;
-                    else { lift.y = lift.destY; returnState = 'goToShack'; }
+                    if (Math.abs(lift.y - lift.destY) > step) {
+                        lift.y -= (lift.y - lift.destY) * 0.05; // Proportional is ok for vertical movement
+                    } else {
+                        lift.y = lift.destY; // Snap
+                        returnState = 'goToShack';
+                    }
                     miner.y = (lift.y / effectiveTileSize) - 1;
                     break;
                 case 'goToShack':
-                     if (Math.abs(minerScreenX - shackX) > 5) miner.x += Math.sign(shackX - minerScreenX) * 0.1;
-                     else {
+                     if (Math.abs(minerScreenX - shackX) > step) {
+                        miner.x += Math.sign(shackX - minerScreenX) * (step / effectiveTileSize);
+                     } else {
+                        miner.x = shackX / effectiveTileSize; // Snap
                         returnState = 'claiming';
                         showNotification("Claiming rewards...", 'info');
                         await new Promise(resolve => setTimeout(resolve, 1500));
-                        minedSyst = 0; miningEnergy = 100; updateUI(); saveGameState();
+                        minedSyst = 0;
+                        miningEnergy = 100;
+                        updateUI();
+                        saveGameState();
                         showNotification("Rewards Claimed & Energy Recharged!", 'success');
                         returnState = 'backToLift';
                     }
                     break;
                  case 'backToLift':
-                    if (Math.abs(minerScreenX - liftTargetX) > 5) miner.x -= Math.sign(minerScreenX - liftTargetX) * 0.1;
-                    else { returnState = 'descending'; lift.destY = (gameStateBeforeReturn.y + 1) * effectiveTileSize; playSound('lift'); }
+                    if (Math.abs(minerScreenX - liftTargetX) > step) {
+                        miner.x -= Math.sign(minerScreenX - liftTargetX) * (step / effectiveTileSize);
+                    } else {
+                        miner.x = lift.x; // Snap
+                        returnState = 'descending';
+                        lift.destY = (gameStateBeforeReturn.y + 1) * effectiveTileSize;
+                        playSound('lift');
+                    }
                     break;
                 case 'descending':
-                     if (Math.abs(lift.y - lift.destY) > 1) lift.y += (lift.destY - lift.y) * 0.05;
-                     else {
-                        lift.y = lift.destY; returnState = 'idle'; isReturningToShack = false;
-                        miner.x = gameStateBeforeReturn.x; miner.y = gameStateBeforeReturn.y; miner.dir = gameStateBeforeReturn.dir;
-                        claimRewardsBtn.disabled = false; claimRewardsBtn.classList.remove('hidden');
+                     if (Math.abs(lift.y - lift.destY) > 1) {
+                        lift.y += (lift.destY - lift.y) * 0.05;
+                        miner.y = (lift.y / effectiveTileSize) - 1;
+                     } else {
+                        // Animation finished, snap to final position and reset state
+                        lift.y = lift.destY;
+                        miner.x = gameStateBeforeReturn.x;
+                        miner.y = gameStateBeforeReturn.y;
+                        miner.dir = gameStateBeforeReturn.dir;
+                        returnState = 'idle';
+                        isReturningToShack = false;
+                        claimRewardsBtn.disabled = false;
+                        claimRewardsBtn.classList.remove('hidden');
                     }
-                    miner.y = (lift.y / effectiveTileSize) - 1;
                     break;
             }
         }
@@ -508,6 +545,7 @@
             gameStateBeforeReturn = { x: miner.x, y: miner.y, dir: miner.dir };
             lift.y = (miner.y + 1) * effectiveTileSize;
             claimRewardsBtn.disabled = true;
+            claimRewardsBtn.classList.add('hidden');
         }
 
         function gameLoop() {
