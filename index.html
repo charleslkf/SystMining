@@ -170,10 +170,8 @@
                 // This sound effect was causing a fatal timing error that would crash the claim sequence.
                 // It has been disabled to ensure game stability.
              } else if (type === 'lift') {
-                const noise = new Tone.Noise("brown").start();
-                const filter = new Tone.AutoFilter("4n").toDestination().start();
-                noise.connect(filter);
-                setTimeout(() => noise.stop(), 500);
+                // This sound effect was causing a fatal timing error that would crash the claim sequence.
+                // It has been disabled to ensure game stability.
              }
         }
 
