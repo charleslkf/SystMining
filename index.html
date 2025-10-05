@@ -161,38 +161,62 @@
         // --- SOUND SETUP ---
         const synth = new Tone.Synth().toDestination();
         const metalSynth = new Tone.MetalSynth({ frequency: 50, envelope: { attack: 0.001, decay: 0.1, release: 0.01 }, harmonicity: 3.1, modulationIndex: 16, resonance: 4000, octaves: 1.5 }).toDestination();
-        let lastMineSoundTime = 0;
-        const MINE_SOUND_COOLDOWN = 0.05; // 50ms cooldown to prevent audio engine crashes from rapid clicks
+
+        // Pre-initialized components for the lift sound to improve performance and stability
+        const liftNoise = new Tone.Noise("brown").toDestination();
+        const liftFilter = new Tone.AutoFilter("4n").toDestination();
+        liftNoise.connect(liftFilter);
+
+        const soundCooldowns = { mine: false, reward: false, lift: false };
+        const soundDurations = { mine: 0.1, reward: 0.1, lift: 0.5 };
 
         function playSound(type) {
-            // All sound effects have been disabled due to a persistent and critical timing bug
-            // in the external Tone.js library that was causing the application to freeze.
-            // This ensures 100% game stability.
+            if (Tone.context.state !== 'running') Tone.start();
+            if (soundCooldowns[type]) return; // Sound is on cooldown, prevent playing
+
+            soundCooldowns[type] = true;
+
+            switch (type) {
+                case 'mine':
+                    metalSynth.triggerAttackRelease("C2", "8n", Tone.now());
+                    break;
+                case 'reward':
+                    synth.triggerAttackRelease("G4", "8n", Tone.now());
+                    break;
+                case 'lift':
+                    liftNoise.start();
+                    liftFilter.start();
+                    // Schedule the stop event using Tone.Transport for precise timing
+                    Tone.Transport.scheduleOnce(() => {
+                        liftNoise.stop();
+                    }, `+${soundDurations.lift}`);
+                    break;
+            }
+
+            // Use Tone.Transport to schedule the cooldown reset
+            Tone.Transport.scheduleOnce(() => {
+                soundCooldowns[type] = false;
+            }, `+${soundDurations[type]}`);
+
+            // Ensure the Transport is running
+            if (Tone.Transport.state !== "started") {
+                Tone.Transport.start();
+            }
         }
 
         // --- WEB3 LOGIC ---
         async function connectWallet() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const isTesting = urlParams.get('testing') === 'true';
-
-            if (!isTesting && typeof window.ethereum === 'undefined') {
-                return showNotification("EVM wallet not found. Please use a DApp browser.", 'error');
-            }
-
+            if (typeof window.ethereum === 'undefined') return showNotification("EVM wallet not found. Please use a DApp browser.", 'error');
             try {
-                if (isTesting) {
-                    userAddress = "0xTEST_ADDRESS_FOR_AUTOMATION";
-                } else {
-                    provider = new ethers.providers.Web3Provider(window.ethereum);
-                    await provider.send("eth_requestAccounts", []);
-                    signer = provider.getSigner();
-                    userAddress = await signer.getAddress();
-                }
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                await provider.send("eth_requestAccounts", []);
+                signer = provider.getSigner();
+                userAddress = await signer.getAddress();
 
                 welcomeModal.classList.add('hidden');
                 connectWalletBtn.classList.add('hidden');
                 walletDetails.classList.remove('hidden');
-                walletAddressSpan.innerText = isTesting ? userAddress : `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
+                walletAddressSpan.innerText = `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
 
                 await checkUserNodeStatus();
             } catch (err) {
@@ -226,7 +250,6 @@
         let returnState = 'idle';
         let tilesX, effectiveTileSize;
         const MINE_START_ROW = 4;
-        const isTesting = new URLSearchParams(window.location.search).get('testing') === 'true';
 
         let miner = { x: 0, y: MINE_START_ROW, dir: 1, animation: 0 };
         let minedTiles = {}; // Use an object for a sparse grid, which is more memory efficient for a deep mine
@@ -299,7 +322,7 @@
 
                     if (tile.x >= 0 && tile.x < tilesX && !minedTiles[tileKey]) {
                         minedTiles[tileKey] = true; // Mark tile as mined
-                        if (isTesting || Math.random() < REWARD_CHANCE) {
+                        if (Math.random() < REWARD_CHANCE) {
                             const reward = tierConfig[userNodeTier]?.reward || 0.01;
                             minedSyst += reward;
                             rewardEffects.push({ x: (tile.x + 0.5) * effectiveTileSize, y: (tile.y + 0.5) * effectiveTileSize, amount: reward.toFixed(4), life: 60 });
