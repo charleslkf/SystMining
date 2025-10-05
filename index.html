@@ -161,10 +161,18 @@
         // --- SOUND SETUP ---
         const synth = new Tone.Synth().toDestination();
         const metalSynth = new Tone.MetalSynth({ frequency: 50, envelope: { attack: 0.001, decay: 0.1, release: 0.01 }, harmonicity: 3.1, modulationIndex: 16, resonance: 4000, octaves: 1.5 }).toDestination();
+        let lastMineSoundTime = 0;
+        const MINE_SOUND_COOLDOWN = 0.05; // 50ms cooldown to prevent audio engine crashes from rapid clicks
 
         function playSound(type) {
              if (Tone.context.state !== 'running') Tone.start();
-             if (type === 'mine') metalSynth.triggerAttackRelease("C2", "8n");
+             if (type === 'mine') {
+                const now = Tone.now();
+                if (now - lastMineSoundTime > MINE_SOUND_COOLDOWN) {
+                    metalSynth.triggerAttackRelease("C2", "8n");
+                    lastMineSoundTime = now;
+                }
+             }
              else if (type === 'reward') synth.triggerAttackRelease("G4", "8n");
              else if (type === 'claim') {
                 // This sound effect was causing a fatal timing error that would crash the claim sequence.
