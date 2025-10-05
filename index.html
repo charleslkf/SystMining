@@ -287,12 +287,6 @@
                 miner.dir = gameState.mineDirection || 1;
                 minedSyst = gameState.minedSyst || 0;
                 minedTiles = gameState.minedTiles || {}; // Load the sparse grid
-
-                // Ensure the two blocks directly in front of the miner are solid rock.
-                const frontX = miner.x + (miner.dir === 1 ? 2 : -1);
-                delete minedTiles[`${frontX},${miner.y}`];
-                delete minedTiles[`${frontX},${miner.y + 1}`];
-
                 updateUI();
             }
         }
@@ -315,11 +309,16 @@
                 await new Promise(resolve => setTimeout(resolve, 250));
 
                 const digX = miner.x + (miner.dir === 1 ? 2 : -1);
+
+                // Dynamically restore the wall to ensure there's always something to mine.
+                delete minedTiles[`${digX},${miner.y}`];
+                delete minedTiles[`${digX},${miner.y + 1}`];
+
                 [0, 1].forEach(offsetY => {
                     const tile = { x: digX, y: miner.y + offsetY };
                     const tileKey = `${tile.x},${tile.y}`;
 
-                    if (tile.x >= 0 && tile.x < tilesX && !minedTiles[tileKey]) {
+                    if (tile.x >= 0 && tile.x < tilesX) {
                         minedTiles[tileKey] = true; // Mark tile as mined
                         if (isTesting || Math.random() < REWARD_CHANCE) {
                             const reward = tierConfig[userNodeTier]?.reward || 0.01;
