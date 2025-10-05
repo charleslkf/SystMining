@@ -79,7 +79,7 @@
             </div>
         </div>
         <div id="game-stats" class="pixel-corners p-2 md:p-4 text-base md:text-lg text-right hidden">
-            <p>Mined: <span id="syst-balance" class="text-amber-400 text-xl md:text-2xl">0.0</span></p>
+            <p>Mined SYST: <span id="syst-balance" class="text-amber-400 text-xl md:text-2xl">0.0</span></p>
             <p class="mt-1 md:mt-2">Energy:</p>
             <div class="w-32 md:w-48 h-5 md:h-6 bg-gray-900 border-2 border-cyan-400 mt-1">
                 <div id="energy-bar" class="h-full bg-cyan-400 transition-all duration-300" style="width: 100%;"></div>
@@ -237,7 +237,7 @@
         let tilesX, effectiveTileSize;
         const MINE_START_ROW = 5; const isTesting = new URLSearchParams(window.location.search).get('testing') === 'true'; // Adjusted for new layout
 
-        let miner = { x: 0, y: MINE_START_ROW, dir: 1, animation: 0 };
+        let miner = { x: 0, y: MINE_START_ROW - 1, dir: 1, animation: 0 };
         let minedTiles = {}; // Use an object for a sparse grid, which is more memory efficient for a deep mine
 
         let lift = { x: 2, y: 0, destY: 0 };
@@ -476,7 +476,7 @@
             const liftTargetX = lift.x * effectiveTileSize;
             const minerScreenX = miner.x * effectiveTileSize;
             const shackX = (canvas.width / 2) - (effectiveTileSize); // Center of the miner
-            const step = 3.75; // A fixed pixel step for movement ensures the animation always finishes
+            const step = 5.625; // A fixed pixel step for movement ensures the animation always finishes
 
             switch(returnState) {
                 case 'goToLift':
