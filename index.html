@@ -34,8 +34,6 @@
 
         #game-container {
             position: relative;
-            width: 100vw;
-            height: 100vh;
         }
 
         #gameCanvas {
@@ -45,6 +43,7 @@
             width: 100%;
             height: 100%;
             cursor: pointer;
+            display: block; /* Ensure it behaves as a block element */
         }
 
         .pixel-corners {
@@ -61,71 +60,58 @@
         .pixel-btn:active { transform: translateY(1px); border-bottom-width: 2px; }
         .pixel-btn:disabled { background-color: #4a5568; border-color: #2d3748; cursor: not-allowed; }
 
-        #ui-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 10;
-            pointer-events: none; /* Allow clicks to pass through to the canvas */
-        }
-
-        #ui-overlay > * {
-             pointer-events: auto; /* Re-enable pointer events for UI elements */
-        }
-
         .modal-overlay {
             background-color: rgba(0,0,0,0.8);
             backdrop-filter: blur(10px);
         }
     </style>
 </head>
-<body class="antialiased">
+<body class="antialiased flex flex-col h-screen bg-black">
 
-    <div id="game-container">
+    <!-- Top HUD Area -->
+    <div id="hud-container" class="flex-shrink-0 p-2 md:p-4 flex justify-between items-start gap-4" style="background-color: var(--bg-dark);">
+        <div id="wallet-info" class="pixel-corners p-2 md:p-4 text-base md:text-lg">
+            <button id="connect-wallet-btn" class="pixel-btn px-3 py-1 md:px-4 md:py-2 bg-amber-500 text-white border-amber-700">Connect Wallet</button>
+            <div id="wallet-details" class="hidden">
+                <p>Status: <span class="text-green-400">Connected</span></p>
+                <p>Wallet: <span id="wallet-address" class="text-cyan-400"></span></p>
+                <p>Node Tier: <span id="node-tier" class="text-fuchsia-400">No Node</span></p>
+            </div>
+        </div>
+        <div id="game-stats" class="pixel-corners p-2 md:p-4 text-base md:text-lg text-right hidden">
+            <p>Mined: <span id="syst-balance" class="text-amber-400 text-xl md:text-2xl">0.0</span></p>
+            <p class="mt-1 md:mt-2">Energy:</p>
+            <div class="w-32 md:w-48 h-5 md:h-6 bg-gray-900 border-2 border-cyan-400 mt-1">
+                <div id="energy-bar" class="h-full bg-cyan-400 transition-all duration-300" style="width: 100%;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Area -->
+    <div id="game-container" class="relative flex-grow w-full h-full overflow-hidden">
         <canvas id="gameCanvas"></canvas>
 
-        <!-- UI OVERLAY -->
-        <div id="ui-overlay" class="p-4 flex flex-col justify-between">
-            <!-- Top UI: Wallet Info & Stats -->
-            <div class="flex justify-between items-start gap-4">
-                <div id="wallet-info" class="pixel-corners p-4 text-lg">
-                    <button id="connect-wallet-btn" class="pixel-btn px-4 py-2 bg-amber-500 text-white border-amber-700">Connect Wallet</button>
-                    <div id="wallet-details" class="hidden">
-                        <p>Status: <span class="text-green-400">Connected</span></p>
-                        <p>Wallet: <span id="wallet-address" class="text-cyan-400"></span></p>
-                        <p>Node Tier: <span id="node-tier" class="text-fuchsia-400">No Node Detected</span></p>
-                    </div>
-                </div>
-                <div id="game-stats" class="pixel-corners p-4 text-lg text-right hidden">
-                    <p>Mined SYST: <span id="syst-balance" class="text-amber-400 text-2xl">0.0000</span></p>
-                    <p class="mt-2">Energy:</p>
-                    <div class="w-48 h-6 bg-gray-900 border-2 border-cyan-400 mt-1">
-                        <div id="energy-bar" class="h-full bg-cyan-400 transition-all duration-300" style="width: 100%;"></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Bottom UI: Claim Button -->
-            <div class="flex justify-center">
-                 <button id="claim-rewards-btn" class="hidden pixel-btn px-8 py-4 text-2xl bg-fuchsia-500 text-white border-fuchsia-700">Claim Rewards</button>
+        <!-- UI OVERLAY for in-game elements -->
+        <div id="ui-overlay" class="absolute inset-0 p-4 flex flex-col justify-end items-center pointer-events-none">
+             <!-- Bottom UI: Claim Button -->
+            <div class="pointer-events-auto">
+                 <button id="claim-rewards-btn" class="hidden pixel-btn px-6 py-3 md:px-8 md:py-4 text-xl md:text-2xl bg-fuchsia-500 text-white border-fuchsia-700">Claim Rewards</button>
             </div>
         </div>
+    </div>
 
-        <!-- MODAL for initial connection / instructions -->
-        <div id="welcome-modal" class="fixed inset-0 modal-overlay z-20 flex items-center justify-center p-4">
-            <div class="pixel-corners p-8 max-w-lg text-center">
-                <h1 class="text-4xl text-cyan-400 mb-4">SYST Mining Game</h1>
-                <p class="text-xl mb-6">Connect your wallet to begin. You must hold a Mining Node NFT to play.</p>
-                <button id="modal-connect-btn" class="pixel-btn px-8 py-3 text-2xl bg-amber-500 text-white border-amber-700">Connect Wallet</button>
-            </div>
+    <!-- MODAL for initial connection / instructions -->
+    <div id="welcome-modal" class="fixed inset-0 modal-overlay z-20 flex items-center justify-center p-4">
+        <div class="pixel-corners p-8 max-w-lg text-center">
+            <h1 class="text-4xl text-cyan-400 mb-4">SYST Mining Game</h1>
+            <p class="text-xl mb-6">Connect your wallet to begin. You must hold a Mining Node NFT to play.</p>
+            <button id="modal-connect-btn" class="pixel-btn px-8 py-3 text-2xl bg-amber-500 text-white border-amber-700">Connect Wallet</button>
         </div>
+    </div>
 
-        <!-- Notification element -->
-        <div id="notification" class="hidden fixed top-5 left-1/2 -translate-x-1/2 w-11/12 max-w-md z-30 pixel-corners bg-green-500 text-white p-4 text-xl">
-             <p></p>
-        </div>
+    <!-- Notification element -->
+    <div id="notification" class="hidden fixed top-20 left-1/2 -translate-x-1/2 w-11/12 max-w-md z-30 pixel-corners bg-green-500 text-white p-4 text-xl">
+         <p></p>
     </div>
 
     <script type="module">
@@ -206,17 +192,17 @@
 
         // --- WEB3 LOGIC ---
         async function connectWallet() {
-            if (typeof window.ethereum === 'undefined') return showNotification("EVM wallet not found. Please use a DApp browser.", 'error');
+            const urlParams = new URLSearchParams(window.location.search); const isTesting = urlParams.get('testing') === 'true'; if (!isTesting && typeof window.ethereum === 'undefined') { return showNotification("EVM wallet not found. Please use a DApp browser.", 'error'); }
             try {
-                provider = new ethers.providers.Web3Provider(window.ethereum);
+                if (isTesting) { userAddress = '0xTEST_ADDRESS_FOR_AUTOMATION'; } else { provider = new ethers.providers.Web3Provider(window.ethereum);
                 await provider.send("eth_requestAccounts", []);
                 signer = provider.getSigner();
-                userAddress = await signer.getAddress();
+                userAddress = await signer.getAddress(); }
 
                 welcomeModal.classList.add('hidden');
                 connectWalletBtn.classList.add('hidden');
                 walletDetails.classList.remove('hidden');
-                walletAddressSpan.innerText = `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
+                walletAddressSpan.innerText = isTesting ? userAddress : `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
 
                 await checkUserNodeStatus();
             } catch (err) {
@@ -249,7 +235,7 @@
         let isDiggingSequence = false;
         let returnState = 'idle';
         let tilesX, effectiveTileSize;
-        const MINE_START_ROW = 4;
+        const MINE_START_ROW = 5; const isTesting = new URLSearchParams(window.location.search).get('testing') === 'true'; // Adjusted for new layout
 
         let miner = { x: 0, y: MINE_START_ROW, dir: 1, animation: 0 };
         let minedTiles = {}; // Use an object for a sparse grid, which is more memory efficient for a deep mine
@@ -269,7 +255,11 @@
         };
 
         function setupGrid() {
-            if (canvas.width === 0 || canvas.height === 0) return;
+            const container = document.getElementById('game-container');
+            if (!container) return;
+            const { width, height } = container.getBoundingClientRect();
+            canvas.width = width;
+            canvas.height = height;
             tilesX = 20;
             effectiveTileSize = canvas.width / tilesX;
         }
@@ -303,7 +293,9 @@
         async function handleMineClick() {
             if (!gameActive || isReturningToShack || isDiggingSequence || miningEnergy <= 0) return;
 
-            miningEnergy--;
+            if (!isTesting) {
+                miningEnergy--;
+            }
             clickCounter++;
             miner.animation = 5;
             playSound('mine');
@@ -322,7 +314,7 @@
 
                     if (tile.x >= 0 && tile.x < tilesX && !minedTiles[tileKey]) {
                         minedTiles[tileKey] = true; // Mark tile as mined
-                        if (Math.random() < REWARD_CHANCE) {
+                        if (isTesting || Math.random() < REWARD_CHANCE) {
                             const reward = tierConfig[userNodeTier]?.reward || 0.01;
                             minedSyst += reward;
                             rewardEffects.push({ x: (tile.x + 0.5) * effectiveTileSize, y: (tile.y + 0.5) * effectiveTileSize, amount: reward.toFixed(4), life: 60 });
@@ -569,9 +561,10 @@
                 handleClaimSequence();
             }
 
-            const targetY = (miner.y + 1) * effectiveTileSize - canvas.height / 2;
-            camera.y += (targetY - camera.y) * 0.05;
-            if (camera.y < 0) camera.y = 0;
+            // Camera follows the miner, keeping them vertically centered, but clamped at the top.
+            const targetY = (miner.y + 1) * effectiveTileSize - (canvas.height / 2);
+            const newCameraY = camera.y + (targetY - camera.y) * 0.1; // Increased easing for more responsive follow
+            camera.y = Math.max(0, newCameraY);
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.save();
@@ -594,10 +587,9 @@
         }
 
         function init() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
             setupGrid();
-            camera.y = (miner.y + 1) * effectiveTileSize - canvas.height / 2;
+            // Initial camera position
+            camera.y = 0;
 
 
             connectWalletBtn.addEventListener('click', connectWallet);
@@ -606,8 +598,6 @@
             canvas.addEventListener('click', handleMineClick);
 
             window.addEventListener('resize', () => {
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
                 setupGrid();
             });
 
