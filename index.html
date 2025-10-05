@@ -222,41 +222,41 @@
         let isReturningToShack = false;
         let isDiggingSequence = false;
         let returnState = 'idle';
-        let tilesX, tilesY, effectiveTileSize;
+        let tilesX, effectiveTileSize;
         const MINE_START_ROW = 4;
-        let minefield = [];
+
         let miner = { x: 0, y: MINE_START_ROW, dir: 1, animation: 0 };
+        let minedTiles = {}; // Use an object for a sparse grid, which is more memory efficient for a deep mine
+
         let lift = { x: 2, y: 0, destY: 0 };
         let rewardEffects = [];
-        const REWARD_CHANCE = 1.0;
+        const REWARD_CHANCE = 0.5; // 50% chance as per original GDD
         let camera = { y: 0 };
         let clickCounter = 0;
 
         const tierConfig = {
-            1: { reward: 0.05 },
-            2: { reward: 0.12 },
-            3: { reward: 0.25 }
+            1: { reward: 0.1 },
+            2: { reward: 0.5 },
+            3: { reward: 2.0 },
+            4: { reward: 5.0 },
+            5: { reward: 10.0 }
         };
 
         function setupGrid() {
             if (canvas.width === 0 || canvas.height === 0) return;
             tilesX = 20;
             effectiveTileSize = canvas.width / tilesX;
-            tilesY = Math.floor(canvas.height / effectiveTileSize) + 200;
-
-            if (isNaN(tilesX) || isNaN(tilesY) || tilesX <= 0 || tilesY <= 0) return;
-
-            if (minefield.length === 0) {
-                 minefield = new Array(tilesX * tilesY).fill(0);
-                 for(let y = 0; y < MINE_START_ROW; y++) {
-                    for(let x = 0; x < tilesX; x++) minefield[y * tilesX + x] = 1;
-                 }
-            }
         }
 
         function saveGameState() {
             if (!userAddress) return;
-            const gameState = { minerX: miner.x, minerY: miner.y, mineDirection: miner.dir, minedSyst: minedSyst, minefield: minefield };
+            const gameState = {
+                minerX: miner.x,
+                minerY: miner.y,
+                mineDirection: miner.dir,
+                minedSyst: minedSyst,
+                minedTiles: minedTiles // Save the sparse grid
+            };
             localStorage.setItem(`syst_miner_progress_${userAddress}`, JSON.stringify(gameState));
         }
 
@@ -269,7 +269,7 @@
                 miner.y = gameState.minerY >= MINE_START_ROW ? gameState.minerY : MINE_START_ROW;
                 miner.dir = gameState.mineDirection || 1;
                 minedSyst = gameState.minedSyst || 0;
-                if(gameState.minefield) minefield = gameState.minefield;
+                minedTiles = gameState.minedTiles || {}; // Load the sparse grid
                 updateUI();
             }
         }
@@ -292,22 +292,22 @@
                 const digX = miner.x + (miner.dir === 1 ? 2 : -1);
                 [0, 1].forEach(offsetY => {
                     const tile = { x: digX, y: miner.y + offsetY };
-                    if (tile.x >= 0 && tile.x < tilesX && tile.y >= 0 && tile.y < tilesY) {
-                        const tileIndex = tile.y * tilesX + tile.x;
-                        if (tileIndex < minefield.length && minefield[tileIndex] === 0) {
-                            minefield[tileIndex] = 1;
-                            if (Math.random() < REWARD_CHANCE) {
-                                const reward = tierConfig[userNodeTier]?.reward || 0.01;
-                                minedSyst += reward;
-                                rewardEffects.push({ x: (tile.x + 0.5) * effectiveTileSize, y: (tile.y + 0.5) * effectiveTileSize, amount: reward.toFixed(4), life: 60 });
-                                playSound('reward');
-                            }
+                    const tileKey = `${tile.x},${tile.y}`;
+
+                    if (tile.x >= 0 && tile.x < tilesX && !minedTiles[tileKey]) {
+                        minedTiles[tileKey] = true; // Mark tile as mined
+                        if (Math.random() < REWARD_CHANCE) {
+                            const reward = tierConfig[userNodeTier]?.reward || 0.01;
+                            minedSyst += reward;
+                            rewardEffects.push({ x: (tile.x + 0.5) * effectiveTileSize, y: (tile.y + 0.5) * effectiveTileSize, amount: reward.toFixed(4), life: 60 });
+                            playSound('reward');
                         }
                     }
                 });
 
                 miner.x += miner.dir;
 
+                // Snake-like movement logic
                 if (miner.dir === 1 && (miner.x + 2 >= tilesX)) { miner.y += 2; miner.dir = -1; }
                 else if (miner.dir === -1 && (miner.x <= 0)) { miner.y += 2; miner.dir = 1; }
 
