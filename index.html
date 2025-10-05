@@ -167,8 +167,9 @@
              if (type === 'mine') metalSynth.triggerAttackRelease("C2", "8n");
              else if (type === 'reward') synth.triggerAttackRelease("G4", "8n");
              else if (type === 'claim') {
-                synth.triggerAttackRelease("C5", "8n", Tone.now());
-                synth.triggerAttackRelease("G5", "8n", Tone.now() + 0.1);
+                const now = Tone.now();
+                synth.triggerAttackRelease("C5", "8n", now);
+                synth.triggerAttackRelease("G5", "8n", now + 0.1);
              } else if (type === 'lift') {
                 const noise = new Tone.Noise("brown").start();
                 const filter = new Tone.AutoFilter("4n").toDestination().start();
