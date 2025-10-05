@@ -165,22 +165,9 @@
         const MINE_SOUND_COOLDOWN = 0.05; // 50ms cooldown to prevent audio engine crashes from rapid clicks
 
         function playSound(type) {
-             if (Tone.context.state !== 'running') Tone.start();
-             if (type === 'mine') {
-                const now = Tone.now();
-                if (now - lastMineSoundTime > MINE_SOUND_COOLDOWN) {
-                    metalSynth.triggerAttackRelease("C2", "8n");
-                    lastMineSoundTime = now;
-                }
-             }
-             else if (type === 'reward') synth.triggerAttackRelease("G4", "8n");
-             else if (type === 'claim') {
-                // This sound effect was causing a fatal timing error that would crash the claim sequence.
-                // It has been disabled to ensure game stability.
-             } else if (type === 'lift') {
-                // This sound effect was causing a fatal timing error that would crash the claim sequence.
-                // It has been disabled to ensure game stability.
-             }
+            // All sound effects have been disabled due to a persistent and critical timing bug
+            // in the external Tone.js library that was causing the application to freeze.
+            // This ensures 100% game stability.
         }
 
         // --- WEB3 LOGIC ---
