@@ -355,16 +355,17 @@
         }
 
         function drawGridAndRocks() {
-            if (!tilesX || !tilesY) return;
+            if (!effectiveTileSize) return;
             const startY = Math.floor(camera.y / effectiveTileSize);
-            const endY = Math.min(startY + Math.ceil(canvas.height / effectiveTileSize) + 2, tilesY);
+            const endY = startY + Math.ceil(canvas.height / effectiveTileSize) + 2;
 
-            ctx.fillStyle = '#2d2620';
-            ctx.fillRect(0, MINE_START_ROW * effectiveTileSize, canvas.width, (tilesY - MINE_START_ROW) * effectiveTileSize);
+            ctx.fillStyle = '#2d2620'; // Base rock color for the entire mine area visible
+            ctx.fillRect(0, MINE_START_ROW * effectiveTileSize, canvas.width, (endY - MINE_START_ROW + 5) * effectiveTileSize);
 
             for (let y = Math.max(MINE_START_ROW, startY); y < endY; y++) {
                 for (let x = 0; x < tilesX; x++) {
-                     if (minefield[y * tilesX + x] === 0) {
+                     // If a tile is NOT in minedTiles, it's a rock.
+                     if (!minedTiles[`${x},${y}`]) {
                         ctx.fillStyle = rockColors[0];
                         ctx.fillRect(x * effectiveTileSize, y * effectiveTileSize, effectiveTileSize, effectiveTileSize);
                         const pattern = getRockPattern(x, y);
