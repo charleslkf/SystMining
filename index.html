@@ -120,9 +120,6 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
-        const urlParams = new URLSearchParams(window.location.search);
-        const isDebug = urlParams.get('debug') === 'true';
-
         const connectWalletBtn = document.getElementById('connect-wallet-btn');
         const modalConnectBtn = document.getElementById('modal-connect-btn');
         const welcomeModal = document.getElementById('welcome-modal');
@@ -194,21 +191,17 @@
 
         // --- WEB3 LOGIC ---
         async function connectWallet() {
-            if (!isDebug && typeof window.ethereum === 'undefined') { return showNotification("EVM wallet not found. Please use a DApp browser.", 'error'); }
+            if (typeof window.ethereum === 'undefined') { return showNotification("EVM wallet not found. Please use a DApp browser.", 'error'); }
             try {
-                if (isDebug) {
-                    userAddress = '0xTEST_ADDRESS_FOR_AUTOMATION';
-                } else {
-                    provider = new ethers.providers.Web3Provider(window.ethereum);
-                    await provider.send("eth_requestAccounts", []);
-                    signer = provider.getSigner();
-                    userAddress = await signer.getAddress();
-                }
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                await provider.send("eth_requestAccounts", []);
+                signer = provider.getSigner();
+                userAddress = await signer.getAddress();
 
                 welcomeModal.classList.add('hidden');
                 connectWalletBtn.classList.add('hidden');
                 walletDetails.classList.remove('hidden');
-                walletAddressSpan.innerText = isDebug ? userAddress : `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
+                walletAddressSpan.innerText = `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
 
                 await checkUserNodeStatus();
             } catch (err) {
@@ -243,7 +236,8 @@
         let tilesX, effectiveTileSize;
         const MINE_START_ROW = 5;
 
-        let miner = { x: 0, y: MINE_START_ROW - 1, dir: 1, animation: 0 };
+        // Start the miner at y=7, which is 2 rows below the top of the mine, leaving the first two rows intact.
+        let miner = { x: 0, y: MINE_START_ROW + 2, dir: 1, animation: 0 };
         let minedTiles = {};
 
         let lift = { x: 2, y: 0, destY: 0 };
@@ -277,28 +271,33 @@
 
         function loadGameState() {
             if (!userAddress) return;
+
             const savedState = localStorage.getItem(`syst_miner_progress_${userAddress}`);
+
             if (savedState) {
                 const gameState = JSON.parse(savedState);
-                miner.x = gameState.minerX || 0;
-                miner.y = gameState.minerY >= MINE_START_ROW - 1 ? gameState.minerY : MINE_START_ROW - 1;
-                miner.dir = gameState.mineDirection || 1;
-                minedSyst = gameState.minedSyst || 0;
-                totalMined = gameState.totalMined || 0;
-                minedTiles = gameState.minedTiles || {};
-
-                let frontX = miner.x + (miner.dir === 1 ? 2 : -1);
-                while (minedTiles[`${frontX},${miner.y}`] && minedTiles[`${frontX},${miner.y + 1}`]) {
-                    miner.x += miner.dir;
-                    if (miner.dir === 1 && (miner.x + 2 >= tilesX)) {
-                        miner.y += 2; miner.dir = -1;
-                    } else if (miner.dir === -1 && (miner.x <= 0)) {
-                        miner.y += 2; miner.dir = 1;
+                // Overwrite the entire miner object to ensure state is applied correctly.
+                miner = {
+                    x: gameState.minerX,
+                    y: gameState.minerY,
+                    dir: gameState.mineDirection,
+                    animation: 0
+                };
+                minedSyst = gameState.minedSyst;
+                totalMined = gameState.totalMined;
+                minedTiles = gameState.minedTiles;
+            } else {
+                // This is a new player. The default miner state is already correct.
+                // Pre-mine the area above the starting position for a clean look.
+                for (let y = MINE_START_ROW; y < miner.y; y++) {
+                    for (let x = 0; x < tilesX; x++) {
+                        minedTiles[`${x},${y}`] = true;
                     }
-                    frontX = miner.x + (miner.dir === 1 ? 2 : -1);
                 }
-                updateUI();
+                minedSyst = 0;
+                totalMined = 0;
             }
+            updateUI();
         }
 
         async function handleMineClick() {
@@ -338,8 +337,14 @@
 
                 if (didMine) {
                     miner.x += miner.dir;
-                    if (miner.dir === 1 && (miner.x + 2 >= tilesX)) { miner.y += 2; miner.dir = -1; }
-                    else if (miner.dir === -1 && (miner.x <= 0)) { miner.y += 2; miner.dir = 1; }
+                    // Turning logic now correctly happens only *after* the miner has successfully moved.
+                    if (miner.dir === 1 && (miner.x + 2 >= tilesX)) {
+                        miner.y += 2;
+                        miner.dir = -1;
+                    } else if (miner.dir === -1 && miner.x <= 0) {
+                        miner.y += 2;
+                        miner.dir = 1;
+                    }
                 }
 
                 updateUI();
@@ -608,10 +613,6 @@
             window.addEventListener('resize', () => {
                 setupGrid();
             });
-
-            if (isDebug) {
-                connectWallet();
-            }
 
             gameLoop();
         }
