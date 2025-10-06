@@ -82,7 +82,8 @@
             <button id="reset-mine-btn" class="hidden pixel-btn px-4 py-2 bg-red-600 text-white border-red-800">Reset Mine</button>
         </div>
         <div id="game-stats" class="pixel-corners p-2 md:p-4 text-base md:text-lg text-right hidden">
-            <p>Mined SYST: <span id="syst-balance" class="text-amber-400 text-xl md:text-2xl">0.0</span></p>
+            <p>Total Mined: <span id="total-syst-balance" class="text-amber-400 text-xl md:text-2xl">0.0000</span></p>
+            <p class="mt-1">Session: <span id="syst-balance" class="text-amber-400 text-xl md:text-2xl">0.0000</span></p>
             <p class="mt-1 md:mt-2">Energy:</p>
             <div class="w-32 md:w-48 h-5 md:h-6 bg-gray-900 border-2 border-cyan-400 mt-1">
                 <div id="energy-bar" class="h-full bg-cyan-400 transition-all duration-300" style="width: 100%;"></div>
@@ -131,6 +132,7 @@
         const nodeTierSpan = document.getElementById('node-tier');
         const gameStats = document.getElementById('game-stats');
         const systBalanceSpan = document.getElementById('syst-balance');
+        const totalSystBalanceSpan = document.getElementById('total-syst-balance');
         const energyBar = document.getElementById('energy-bar');
         const claimRewardsBtn = document.getElementById('claim-rewards-btn');
         const resetMineBtn = document.getElementById('reset-mine-btn');
@@ -140,6 +142,7 @@
         let provider, signer, userAddress;
         let userNodeTier = 0;
         let minedSyst = 0;
+        let totalMined = 0;
         let miningEnergy = 100;
 
         // --- MOCK CONTRACT ADDRESSES ---
@@ -265,7 +268,7 @@
             if (!userAddress) return;
             const gameState = {
                 minerX: miner.x, minerY: miner.y, mineDirection: miner.dir,
-                minedSyst: minedSyst, minedTiles: minedTiles
+                minedSyst: minedSyst, totalMined: totalMined, minedTiles: minedTiles
             };
             localStorage.setItem(`syst_miner_progress_${userAddress}`, JSON.stringify(gameState));
         }
@@ -279,6 +282,7 @@
                 miner.y = gameState.minerY >= MINE_START_ROW - 1 ? gameState.minerY : MINE_START_ROW - 1;
                 miner.dir = gameState.mineDirection || 1;
                 minedSyst = gameState.minedSyst || 0;
+                totalMined = gameState.totalMined || 0;
                 minedTiles = gameState.minedTiles || {};
 
                 let frontX = miner.x + (miner.dir === 1 ? 2 : -1);
@@ -465,6 +469,7 @@
 
         function updateUI() {
             systBalanceSpan.innerText = minedSyst.toFixed(4);
+            totalSystBalanceSpan.innerText = totalMined.toFixed(4);
             energyBar.style.width = `${miningEnergy}%`;
         }
 
@@ -510,6 +515,7 @@
                         returnState = 'claiming';
                         showNotification("Claiming rewards...", 'info');
                         await new Promise(resolve => setTimeout(resolve, 1500));
+                        totalMined += minedSyst;
                         minedSyst = 0;
                         miningEnergy = 100;
                         updateUI();
