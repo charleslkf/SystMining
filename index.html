@@ -69,18 +69,7 @@
 <body class="antialiased flex flex-col h-screen bg-black">
 
     <!-- Top HUD Area -->
-    <div id="hud-container" class="flex-shrink-0 p-2 md:p-4 flex justify-between items-start gap-4" style="background-color: var(--bg-dark);">
-        <div id="wallet-info" class="pixel-corners p-2 md:p-4 text-base md:text-lg">
-            <button id="connect-wallet-btn" class="pixel-btn px-3 py-1 md:px-4 md:py-2 bg-amber-500 text-white border-amber-700">Connect Wallet</button>
-            <div id="wallet-details" class="hidden">
-                <p>Status: <span class="text-green-400">Connected</span></p>
-                <p>Wallet: <span id="wallet-address" class="text-cyan-400"></span></p>
-                <p>Node Tier: <span id="node-tier" class="text-fuchsia-400">No Node</span></p>
-            </div>
-        </div>
-        <div class="flex-grow flex justify-center">
-            <button id="reset-mine-btn" class="hidden pixel-btn px-4 py-2 bg-red-600 text-white border-red-800">Reset Mine</button>
-        </div>
+    <div id="hud-container" class="flex-shrink-0 p-2 md:p-4 flex justify-end items-start gap-4" style="background-color: var(--bg-dark);">
         <div id="game-stats" class="pixel-corners p-2 md:p-4 text-base md:text-lg text-right hidden">
             <p>Total Mined: <span id="total-syst-balance" class="text-amber-400 text-xl md:text-2xl">0.0000</span></p>
             <p class="mt-1">Session: <span id="syst-balance" class="text-amber-400 text-xl md:text-2xl">0.0000</span></p>
@@ -97,9 +86,17 @@
 
         <!-- UI OVERLAY for in-game elements -->
         <div id="ui-overlay" class="absolute inset-0 p-4 flex flex-col justify-end items-center pointer-events-none">
-             <!-- Bottom UI: Claim Button -->
-            <div class="pointer-events-auto">
+             <!-- Bottom UI -->
+            <div class="text-center pointer-events-auto">
                  <button id="claim-rewards-btn" class="hidden pixel-btn px-6 py-3 md:px-8 md:py-4 text-xl md:text-2xl bg-fuchsia-500 text-white border-fuchsia-700">Claim Rewards</button>
+                 <div id="wallet-info" class="pixel-corners p-2 md:p-4 text-base md:text-lg mt-4">
+                    <button id="connect-wallet-btn" class="pixel-btn px-3 py-1 md:px-4 md:py-2 bg-amber-500 text-white border-amber-700">Connect Wallet</button>
+                    <div id="wallet-details" class="hidden">
+                        <p>Status: <span class="text-green-400">Connected</span></p>
+                        <p>Wallet: <span id="wallet-address" class="text-cyan-400"></span></p>
+                        <p>Node Tier: <span id="node-tier" class="text-fuchsia-400">No Node</span></p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -123,6 +120,9 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const isDebug = urlParams.get('debug') === 'true';
+
         const connectWalletBtn = document.getElementById('connect-wallet-btn');
         const modalConnectBtn = document.getElementById('modal-connect-btn');
         const welcomeModal = document.getElementById('welcome-modal');
@@ -135,7 +135,6 @@
         const totalSystBalanceSpan = document.getElementById('total-syst-balance');
         const energyBar = document.getElementById('energy-bar');
         const claimRewardsBtn = document.getElementById('claim-rewards-btn');
-        const resetMineBtn = document.getElementById('reset-mine-btn');
         const notification = document.getElementById('notification');
 
         // --- WEB3 SETUP ---
@@ -195,17 +194,21 @@
 
         // --- WEB3 LOGIC ---
         async function connectWallet() {
-            if (typeof window.ethereum === 'undefined') { return showNotification("EVM wallet not found. Please use a DApp browser.", 'error'); }
+            if (!isDebug && typeof window.ethereum === 'undefined') { return showNotification("EVM wallet not found. Please use a DApp browser.", 'error'); }
             try {
-                provider = new ethers.providers.Web3Provider(window.ethereum);
-                await provider.send("eth_requestAccounts", []);
-                signer = provider.getSigner();
-                userAddress = await signer.getAddress();
+                if (isDebug) {
+                    userAddress = '0xTEST_ADDRESS_FOR_AUTOMATION';
+                } else {
+                    provider = new ethers.providers.Web3Provider(window.ethereum);
+                    await provider.send("eth_requestAccounts", []);
+                    signer = provider.getSigner();
+                    userAddress = await signer.getAddress();
+                }
 
                 welcomeModal.classList.add('hidden');
                 connectWalletBtn.classList.add('hidden');
                 walletDetails.classList.remove('hidden');
-                walletAddressSpan.innerText = `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
+                walletAddressSpan.innerText = isDebug ? userAddress : `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
 
                 await checkUserNodeStatus();
             } catch (err) {
@@ -223,7 +226,6 @@
                 nodeTierSpan.innerText = `Tier ${userNodeTier}`;
                 gameStats.classList.remove('hidden');
                 claimRewardsBtn.classList.remove('hidden');
-                resetMineBtn.classList.remove('hidden');
                 showNotification(`Mining Node Tier ${userNodeTier} detected! Starting game.`, 'success');
                 loadGameState();
                 startGame();
@@ -594,17 +596,6 @@
             gameActive = true;
         }
 
-        function resetMine() {
-            if (confirm("Are you sure you want to reset your mine? All progress will be lost.")) {
-                if (userAddress) {
-                    localStorage.removeItem(`syst_miner_progress_${userAddress}`);
-                    location.reload();
-                } else {
-                    showNotification("Connect your wallet first.", "error");
-                }
-            }
-        }
-
         function init() {
             setupGrid();
             camera.y = 0;
@@ -612,12 +603,15 @@
             connectWalletBtn.addEventListener('click', connectWallet);
             modalConnectBtn.addEventListener('click', connectWallet);
             claimRewardsBtn.addEventListener('click', startClaimSequence);
-            resetMineBtn.addEventListener('click', resetMine);
             canvas.addEventListener('click', handleMineClick);
 
             window.addEventListener('resize', () => {
                 setupGrid();
             });
+
+            if (isDebug) {
+                connectWallet();
+            }
 
             gameLoop();
         }
