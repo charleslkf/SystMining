@@ -148,7 +148,6 @@
         const synth = new Tone.Synth().toDestination();
         const metalSynth = new Tone.MetalSynth({ frequency: 50, envelope: { attack: 0.001, decay: 0.1, release: 0.01 }, harmonicity: 3.1, modulationIndex: 16, resonance: 4000, octaves: 1.5 }).toDestination();
 
-        // Pre-initialized components for the lift sound to improve performance and stability
         const liftNoise = new Tone.Noise("brown").toDestination();
         const liftFilter = new Tone.AutoFilter("4n").toDestination();
         liftNoise.connect(liftFilter);
@@ -158,7 +157,7 @@
 
         function playSound(type) {
             if (Tone.context.state !== 'running') Tone.start();
-            if (soundCooldowns[type]) return; // Sound is on cooldown, prevent playing
+            if (soundCooldowns[type]) return;
 
             soundCooldowns[type] = true;
 
@@ -172,19 +171,16 @@
                 case 'lift':
                     liftNoise.start();
                     liftFilter.start();
-                    // Schedule the stop event using Tone.Transport for precise timing
                     Tone.Transport.scheduleOnce(() => {
                         liftNoise.stop();
                     }, `+${soundDurations.lift}`);
                     break;
             }
 
-            // Use Tone.Transport to schedule the cooldown reset
             Tone.Transport.scheduleOnce(() => {
                 soundCooldowns[type] = false;
             }, `+${soundDurations[type]}`);
 
-            // Ensure the Transport is running
             if (Tone.Transport.state !== "started") {
                 Tone.Transport.start();
             }
@@ -192,17 +188,17 @@
 
         // --- WEB3 LOGIC ---
         async function connectWallet() {
-            const urlParams = new URLSearchParams(window.location.search); const isTesting = urlParams.get('testing') === 'true'; if (!isTesting && typeof window.ethereum === 'undefined') { return showNotification("EVM wallet not found. Please use a DApp browser.", 'error'); }
+            if (typeof window.ethereum === 'undefined') { return showNotification("EVM wallet not found. Please use a DApp browser.", 'error'); }
             try {
-                if (isTesting) { userAddress = '0xTEST_ADDRESS_FOR_AUTOMATION'; } else { provider = new ethers.providers.Web3Provider(window.ethereum);
+                provider = new ethers.providers.Web3Provider(window.ethereum);
                 await provider.send("eth_requestAccounts", []);
                 signer = provider.getSigner();
-                userAddress = await signer.getAddress(); }
+                userAddress = await signer.getAddress();
 
                 welcomeModal.classList.add('hidden');
                 connectWalletBtn.classList.add('hidden');
                 walletDetails.classList.remove('hidden');
-                walletAddressSpan.innerText = isTesting ? userAddress : `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
+                walletAddressSpan.innerText = `${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)}`;
 
                 await checkUserNodeStatus();
             } catch (err) {
@@ -235,23 +231,19 @@
         let isDiggingSequence = false;
         let returnState = 'idle';
         let tilesX, effectiveTileSize;
-        const MINE_START_ROW = 5; const isTesting = new URLSearchParams(window.location.search).get('testing') === 'true'; // Adjusted for new layout
+        const MINE_START_ROW = 5;
 
         let miner = { x: 0, y: MINE_START_ROW - 1, dir: 1, animation: 0 };
-        let minedTiles = {}; // Use an object for a sparse grid, which is more memory efficient for a deep mine
+        let minedTiles = {};
 
         let lift = { x: 2, y: 0, destY: 0 };
         let rewardEffects = [];
-        const REWARD_CHANCE = 0.5; // 50% chance as per original GDD
+        const REWARD_CHANCE = 0.5;
         let camera = { y: 0 };
         let clickCounter = 0;
 
         const tierConfig = {
-            1: { reward: 0.1 },
-            2: { reward: 0.5 },
-            3: { reward: 2.0 },
-            4: { reward: 5.0 },
-            5: { reward: 10.0 }
+            1: { reward: 0.1 }, 2: { reward: 0.5 }, 3: { reward: 2.0 }, 4: { reward: 5.0 }, 5: { reward: 10.0 }
         };
 
         function setupGrid() {
@@ -267,11 +259,8 @@
         function saveGameState() {
             if (!userAddress) return;
             const gameState = {
-                minerX: miner.x,
-                minerY: miner.y,
-                mineDirection: miner.dir,
-                minedSyst: minedSyst,
-                minedTiles: minedTiles // Save the sparse grid
+                minerX: miner.x, minerY: miner.y, mineDirection: miner.dir,
+                minedSyst: minedSyst, minedTiles: minedTiles
             };
             localStorage.setItem(`syst_miner_progress_${userAddress}`, JSON.stringify(gameState));
         }
@@ -282,11 +271,21 @@
             if (savedState) {
                 const gameState = JSON.parse(savedState);
                 miner.x = gameState.minerX || 0;
-                // Ensure y position is not above the corrected starting line
                 miner.y = gameState.minerY >= MINE_START_ROW - 1 ? gameState.minerY : MINE_START_ROW - 1;
                 miner.dir = gameState.mineDirection || 1;
                 minedSyst = gameState.minedSyst || 0;
-                minedTiles = gameState.minedTiles || {}; // Load the sparse grid
+                minedTiles = gameState.minedTiles || {};
+
+                let frontX = miner.x + (miner.dir === 1 ? 2 : -1);
+                while (minedTiles[`${frontX},${miner.y}`] && minedTiles[`${frontX},${miner.y + 1}`]) {
+                    miner.x += miner.dir;
+                    if (miner.dir === 1 && (miner.x + 2 >= tilesX)) {
+                        miner.y += 2; miner.dir = -1;
+                    } else if (miner.dir === -1 && (miner.x <= 0)) {
+                        miner.y += 2; miner.dir = 1;
+                    }
+                    frontX = miner.x + (miner.dir === 1 ? 2 : -1);
+                }
                 updateUI();
             }
         }
@@ -294,9 +293,8 @@
         async function handleMineClick() {
             if (!gameActive || isReturningToShack || isDiggingSequence || miningEnergy <= 0) return;
 
-            if (!isTesting) {
-                miningEnergy--;
-            }
+            miningEnergy--;
+
             clickCounter++;
             miner.animation = 5;
             playSound('mine');
@@ -309,18 +307,16 @@
                 await new Promise(resolve => setTimeout(resolve, 250));
 
                 const digX = miner.x + (miner.dir === 1 ? 2 : -1);
-
-                // Dynamically restore the wall to ensure there's always something to mine.
-                delete minedTiles[`${digX},${miner.y}`];
-                delete minedTiles[`${digX},${miner.y + 1}`];
+                let didMine = false;
 
                 [0, 1].forEach(offsetY => {
                     const tile = { x: digX, y: miner.y + offsetY };
                     const tileKey = `${tile.x},${tile.y}`;
 
-                    if (tile.x >= 0 && tile.x < tilesX) {
-                        minedTiles[tileKey] = true; // Mark tile as mined
-                        if (isTesting || Math.random() < REWARD_CHANCE) {
+                    if (tile.x >= 0 && tile.x < tilesX && !minedTiles[tileKey]) {
+                        didMine = true;
+                        minedTiles[tileKey] = true;
+                        if (Math.random() < REWARD_CHANCE) {
                             const reward = tierConfig[userNodeTier]?.reward || 0.01;
                             minedSyst += reward;
                             rewardEffects.push({ x: (tile.x + 0.5) * effectiveTileSize, y: (tile.y + 0.5) * effectiveTileSize, amount: reward.toFixed(4), life: 60 });
@@ -329,11 +325,11 @@
                     }
                 });
 
-                miner.x += miner.dir;
-
-                // Snake-like movement logic
-                if (miner.dir === 1 && (miner.x + 2 >= tilesX)) { miner.y += 2; miner.dir = -1; }
-                else if (miner.dir === -1 && (miner.x <= 0)) { miner.y += 2; miner.dir = 1; }
+                if (didMine) {
+                    miner.x += miner.dir;
+                    if (miner.dir === 1 && (miner.x + 2 >= tilesX)) { miner.y += 2; miner.dir = -1; }
+                    else if (miner.dir === -1 && (miner.x <= 0)) { miner.y += 2; miner.dir = 1; }
+                }
 
                 updateUI();
                 saveGameState();
@@ -344,7 +340,6 @@
                 showNotification("Energy depleted! Return to shack to claim and recharge.", "info");
             }
         }
-
 
         const rockColors = ['#4a3f35', '#574a3e', '#3b322a'];
         let rockPatterns = {};
@@ -383,12 +378,11 @@
             const startY = Math.floor(camera.y / effectiveTileSize);
             const endY = startY + Math.ceil(canvas.height / effectiveTileSize) + 2;
 
-            ctx.fillStyle = '#2d2620'; // Base rock color for the entire mine area visible
+            ctx.fillStyle = '#2d2620';
             ctx.fillRect(0, MINE_START_ROW * effectiveTileSize, canvas.width, (endY - MINE_START_ROW + 5) * effectiveTileSize);
 
             for (let y = Math.max(MINE_START_ROW, startY); y < endY; y++) {
                 for (let x = 0; x < tilesX; x++) {
-                     // If a tile is NOT in minedTiles, it's a rock.
                      if (!minedTiles[`${x},${y}`]) {
                         ctx.fillStyle = rockColors[0];
                         ctx.fillRect(x * effectiveTileSize, y * effectiveTileSize, effectiveTileSize, effectiveTileSize);
@@ -411,7 +405,6 @@
             const liftScreenX = lift.x * effectiveTileSize;
 
             ctx.fillStyle = 'rgba(0,0,0,0.3)';
-            // Draw the lift shaft far down the screen to simulate endlessness
             ctx.fillRect(liftScreenX, 0, liftWidth, canvas.height + camera.y + 2000);
 
             ctx.fillStyle = '#8c5a2b';
@@ -482,7 +475,7 @@
             const liftTargetX = lift.x * effectiveTileSize;
             const minerScreenX = miner.x * effectiveTileSize;
             const shackX = (canvas.width / 2) - (effectiveTileSize); // Center of the miner
-            const step = 5.625; // A fixed pixel step for movement ensures the animation always finishes
+            const step = 5.625;
 
             switch(returnState) {
                 case 'goToLift':
@@ -497,7 +490,7 @@
                     break;
                 case 'ascending':
                     if (Math.abs(lift.y - lift.destY) > step) {
-                        lift.y -= (lift.y - lift.destY) * 0.05; // Proportional is ok for vertical movement
+                        lift.y -= (lift.y - lift.destY) * 0.05;
                     } else {
                         lift.y = lift.destY; // Snap
                         returnState = 'goToShack';
@@ -535,7 +528,6 @@
                         lift.y += (lift.destY - lift.y) * 0.05;
                         miner.y = (lift.y / effectiveTileSize) - 1;
                      } else {
-                        // Animation finished, snap to final position and reset state
                         lift.y = lift.destY;
                         miner.x = gameStateBeforeReturn.x;
                         miner.y = gameStateBeforeReturn.y;
@@ -567,9 +559,8 @@
                 handleClaimSequence();
             }
 
-            // Camera follows the miner, keeping them vertically centered, but clamped at the top.
             const targetY = (miner.y + 1) * effectiveTileSize - (canvas.height / 2);
-            const newCameraY = camera.y + (targetY - camera.y) * 0.1; // Increased easing for more responsive follow
+            const newCameraY = camera.y + (targetY - camera.y) * 0.1;
             camera.y = Math.max(0, newCameraY);
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -594,9 +585,7 @@
 
         function init() {
             setupGrid();
-            // Initial camera position
             camera.y = 0;
-
 
             connectWalletBtn.addEventListener('click', connectWallet);
             modalConnectBtn.addEventListener('click', connectWallet);
